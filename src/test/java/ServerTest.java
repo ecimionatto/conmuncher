@@ -12,9 +12,12 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
@@ -30,8 +33,9 @@ public class ServerTest {
     }
 
     @After
-    public void tearDown() {
-       this.server.shutdown();
+    public void down() {
+
+        Optional.ofNullable(server).ifPresent(Server::shutdown);
     }
 
     /*
@@ -69,14 +73,54 @@ and perform a clean shutdown as quickly as possible.
 10.Clearly state all of the assumptions you made in completing the Application.
      */
 
+    @Test
+    public void shouldAcceptMaxOf5CncurrentConnctions() throws IOException, InterruptedException {
+
+        sendMessages(new Socket(localAddress(), 4000));
+        sendMessages(new Socket(localAddress(), 4000));
+        sendMessages(new Socket(localAddress(), 4000));
+        sendMessages(new Socket(localAddress(), 4000));
+        sendMessages(new Socket(localAddress(), 4000));
+
+        TimeUnit.SECONDS.sleep(15);
+
+    }
+
+    private void sendMessages(final Socket socket) {
+        try (PrintWriter printWriter = new PrintWriter(
+                socket.getOutputStream(),
+                        true)) {
+            IntStream.range(0, 100).forEach(i ->
+                    printWriter.println(randomCode()));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendRandomRequestsAsNewClient(Socket socket) {
+        try {
+            sendMessage(socket, randomCode());
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private String localAddress() {
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+
     @Ignore
     @Test
     public void shouldAcceptRequestsOn4000() throws IOException, InterruptedException {
-        Socket clientSocket = new Socket(InetAddress.getLocalHost().getHostAddress(), 4000);
-        PrintWriter printWriter = new PrintWriter(clientSocket.getOutputStream(), true);
-
+        Socket clientSocket = new Socket(localAddress(), 4000);
         final String code1 = randomCode();
-        printWriter.println(code1);
+
+        PrintWriter printWriter = sendMessage(clientSocket, code1);
         final String code2 = randomCode();
         printWriter.println(code2);
         final String code3 = randomCode();
@@ -95,9 +139,16 @@ and perform a clean shutdown as quickly as possible.
 
     }
 
+    private PrintWriter sendMessage(final Socket clientSocket, final String code1) throws IOException {
+        PrintWriter printWriter = new PrintWriter(clientSocket.getOutputStream(), true);
+        printWriter.println(code1);
+        return printWriter;
+    }
+
+    @Ignore
     @Test
     public void shouldTerminateWhenRequestsIsInvalid() throws IOException, InterruptedException {
-        Socket clientSocket = new Socket(InetAddress.getLocalHost().getHostAddress(), 4000);
+        Socket clientSocket = new Socket(localAddress(), 4000);
         PrintWriter printWriter = new PrintWriter(clientSocket.getOutputStream(), true);
 
         final String code1 = randomCode();

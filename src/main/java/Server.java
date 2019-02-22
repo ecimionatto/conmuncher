@@ -6,9 +6,14 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -17,16 +22,24 @@ public class Server {
     public static final String NUMBERS_LOG = "numbers.log";
     final ServerSocket serverSocket;
     final Map<String, List<Code>> requestMap = new ConcurrentHashMap<>();
+    private final List<String> codes = new ArrayList<>();
+
+    private final ThreadPoolExecutor executor =
+            (ThreadPoolExecutor) Executors.newFixedThreadPool(5);
+
 
     public Server() {
         cleanUp();
         try {
             serverSocket = new ServerSocket(4000);
-            final Socket socket = serverSocket.accept();
-            while (processRequest(socket)) {
+            while (true) {
+                Socket socket = serverSocket.accept();
+                executor.execute(() -> processRequest(socket));
             }
-            socket.close();
-        } catch (IOException e) {
+
+
+        } catch (
+                IOException e) {
             throw new IllegalStateException(e);
         }
 
@@ -37,60 +50,40 @@ public class Server {
     }
 
     private boolean processRequest(final Socket socket) {
-        final List<String> codes = parseRequest(socket);
-        if (!codes.isEmpty()) {
-            //TODO optimize
-            writeToFile(codes);
-        }
 
-        if (!isRequestValid(codes)) return false;
-
-        final String remoteAddress = socket.getRemoteSocketAddress().toString();
-
-        if (isMaxNumberOfConnections(remoteAddress)) return true;
-
-        mapRequest(codes, remoteAddress);
-
-        return false;
-    }
-
-    private List<String> parseRequest(final Socket socket) {
         try {
-            return new BufferedReader(new InputStreamReader(socket.getInputStream()))
-                    .lines().collect(Collectors.toList());
+
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream()));
+
+            String inputLine;
+            while ((inputLine = in.readLine()) != null) {
+                if ("TERMINATE".equals(inputLine)) {
+                    out.println("bye");
+                    break;
+                } else {
+                    final List<String> codes = Arrays.stream(inputLine.split(System.lineSeparator())).collect(Collectors.toList());
+                    if (isRequestInvalid(codes)) {
+                        System.out.println(inputLine);
+                        this.codes.add(inputLine);
+                        CompletableFuture.runAsync(() -> writeToFile(codes));
+                    } else {
+                        break;
+                    }
+                }
+            }
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
 
-    }
 
-    private boolean isRequestValid(final List<String> collect) {
-        if (collect.stream().anyMatch
-                (code -> Pattern.matches("[a-zA-Z]+", code) == false || code.length() != 9)) {
-            return false;
-        }
         return true;
     }
 
-    private boolean isMaxNumberOfConnections(final String remoteAddress) {
-        if (requestMap.containsKey(remoteAddress) && requestMap.get(remoteAddress).size() > 5) {
-            return true;
-        }
-        return false;
-    }
-
-    private void mapRequest(final List<String> codes, final String remoteAddress) {
-        if (requestMap.containsKey(remoteAddress)) {
-            requestMap.get(remoteAddress).addAll(
-                    mapToCode(remoteAddress, codes));
-        } else {
-            requestMap.put(remoteAddress, mapToCode(remoteAddress, codes));
-        }
-    }
-
-    private List<Code> mapToCode(final String remoteAddress, final List<String> codes) {
-        return codes.stream().map(
-                code -> new Code(remoteAddress, code, false)).collect(Collectors.toList());
+    private boolean isRequestInvalid(final List<String> content) {
+        return content.stream().anyMatch(code ->
+                Pattern.matches("[a-zA-Z]+", code) == false || code.length() != 9);
     }
 
     public void shutdown() {
@@ -102,11 +95,10 @@ public class Server {
     }
 
     private void writeToFile(final List<String> content) {
-        try (FileWriter fileWriter = new FileWriter(NUMBERS_LOG)) {
-            PrintWriter printWriter = new PrintWriter(fileWriter);
-            content.forEach(code -> printWriter.append(code + "\n"));
-            printWriter.close();
-
+        try (PrintWriter writer = new PrintWriter(new FileWriter(NUMBERS_LOG))) {
+            synchronized (this) {
+                codes.forEach(code -> writer.append(code + "\n"));
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
