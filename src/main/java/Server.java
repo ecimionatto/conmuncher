@@ -1,16 +1,17 @@
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -24,7 +25,7 @@ public class Server {
     final Map<String, List<Code>> requestMap = new ConcurrentHashMap<>();
     private final List<String> codes = new ArrayList<>();
 
-    private final ThreadPoolExecutor executor =
+    private final ThreadPoolExecutor fixedSizePoolExecutor =
             (ThreadPoolExecutor) Executors.newFixedThreadPool(5);
 
 
@@ -34,19 +35,25 @@ public class Server {
             serverSocket = new ServerSocket(4000);
             while (true) {
                 Socket socket = serverSocket.accept();
-                executor.execute(() -> processRequest(socket));
+                fixedSizePoolExecutor.execute(() -> processRequest(socket));
             }
 
-
-        } catch (
-                IOException e) {
+        } catch (IOException e) {
             throw new IllegalStateException(e);
         }
 
     }
 
     private void cleanUp() {
-        if (new File(NUMBERS_LOG).exists()) new File(NUMBERS_LOG).delete();
+        File numbersLog = new File(NUMBERS_LOG);
+        if (numbersLog.exists()) {
+            numbersLog.delete();
+        }
+        try {
+            numbersLog.createNewFile();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private boolean processRequest(final Socket socket) {
@@ -63,20 +70,19 @@ public class Server {
                     out.println("bye");
                     break;
                 } else {
-                    final List<String> codes = Arrays.stream(inputLine.split(System.lineSeparator())).collect(Collectors.toList());
-                    if (isRequestInvalid(codes)) {
-                        System.out.println(inputLine);
-                        this.codes.add(inputLine);
-                        CompletableFuture.runAsync(() -> writeToFile(codes));
-                    } else {
-                        break;
-                    }
+                    final List<String> codes = Arrays.stream(
+                            inputLine.split(
+                                    System.lineSeparator())).collect(Collectors.toList());
+                    System.out.println(codes);
+                    writeToFile(codes);
+//                    if (isRequestInvalid(codes)) {
+//                        break;
+//                    }
                 }
             }
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-
 
         return true;
     }
@@ -94,14 +100,23 @@ public class Server {
         }
     }
 
-    private void writeToFile(final List<String> content) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(NUMBERS_LOG))) {
-            synchronized (this) {
-                codes.forEach(code -> writer.append(code + "\n"));
+    private synchronized void writeToFile(final List<String> content) {
+        //try (BufferedWriter writer = new BufferedWriter(new FileWriter(NUMBERS_LOG))) {
+        content.forEach(code ->
+        {
+            try {
+                Files.write(Paths.get(NUMBERS_LOG),
+                        (code + System.lineSeparator()).getBytes(),
+                        StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        });
+
+
+//        } catch (IOException e) {
+//            throw new IllegalStateException(e);
+//        }
     }
 
     public static void main(String[] args) {

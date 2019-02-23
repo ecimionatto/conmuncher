@@ -76,25 +76,39 @@ and perform a clean shutdown as quickly as possible.
     @Test
     public void shouldAcceptMaxOf5CncurrentConnctions() throws IOException, InterruptedException {
 
-        sendMessages(new Socket(localAddress(), 4000));
-        sendMessages(new Socket(localAddress(), 4000));
-        sendMessages(new Socket(localAddress(), 4000));
-        sendMessages(new Socket(localAddress(), 4000));
-        sendMessages(new Socket(localAddress(), 4000));
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
 
-        TimeUnit.SECONDS.sleep(15);
+        TimeUnit.SECONDS.sleep(5);
 
+        final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
+        assertThat(reader.readLine(), CoreMatchers.notNullValue());
+        assertThat(reader.readLine(), CoreMatchers.notNullValue());
+        assertThat(reader.readLine(), CoreMatchers.notNullValue());
+        assertThat(reader.readLine(), CoreMatchers.notNullValue());
+        assertThat(reader.readLine(), CoreMatchers.notNullValue());
+        assertThat(reader.readLine(), CoreMatchers.nullValue());
     }
 
-    private void sendMessages(final Socket socket) {
-        try (PrintWriter printWriter = new PrintWriter(
-                socket.getOutputStream(),
-                        true)) {
-            IntStream.range(0, 100).forEach(i ->
-                    printWriter.println(randomCode()));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    private void sendMessagesRandomMessages(final Socket socket, final int numberOfMessages, final int blockSeconds) {
+        CompletableFuture.runAsync( () -> {
+
+            try (PrintWriter printWriter = new PrintWriter(
+                    socket.getOutputStream(),
+                    true)) {
+                IntStream.range(0, numberOfMessages).forEach(i ->
+                        printWriter.println(randomCode()));
+                TimeUnit.SECONDS.sleep(blockSeconds);
+            } catch (IOException e) {
+                e.printStackTrace();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void sendRandomRequestsAsNewClient(Socket socket) {
