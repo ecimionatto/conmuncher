@@ -8,11 +8,11 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.regex.Pattern;
@@ -21,12 +21,12 @@ import java.util.stream.Collectors;
 public class Server {
 
     public static final String NUMBERS_LOG = "numbers.log";
-    final ServerSocket serverSocket;
-    final Map<String, List<Code>> requestMap = new ConcurrentHashMap<>();
-    private final List<String> codes = new ArrayList<>();
 
+    private final Set<Integer> codes = Collections.synchronizedSet(new HashSet<>());
     private final ThreadPoolExecutor fixedSizePoolExecutor =
             (ThreadPoolExecutor) Executors.newFixedThreadPool(5);
+    private final ServerSocket serverSocket;
+
 
 
     public Server() {
@@ -37,11 +37,9 @@ public class Server {
                 Socket socket = serverSocket.accept();
                 fixedSizePoolExecutor.execute(() -> processRequest(socket));
             }
-
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-
     }
 
     private void cleanUp() {
@@ -70,14 +68,13 @@ public class Server {
                     out.println("bye");
                     break;
                 } else {
-                    final List<String> codes = Arrays.stream(
-                            inputLine.split(
-                                    System.lineSeparator())).collect(Collectors.toList());
-                    System.out.println(codes);
-                    writeToFile(codes);
-//                    if (isRequestInvalid(codes)) {
-//                        break;
-//                    }
+                    final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
+                            .collect(Collectors.toList());
+                    System.out.println(receivedData);
+                    if (isRequestInvalid(receivedData)) {
+                        break;
+                    }
+                    persistDataIfNotDupicated(receivedData);
                 }
             }
         } catch (IOException e) {
@@ -89,7 +86,7 @@ public class Server {
 
     private boolean isRequestInvalid(final List<String> content) {
         return content.stream().anyMatch(code ->
-                Pattern.matches("[a-zA-Z]+", code) == false || code.length() != 9);
+                Pattern.matches("[0-9]+", code) == false || code.length() != 9);
     }
 
     public void shutdown() {
@@ -100,16 +97,17 @@ public class Server {
         }
     }
 
-    private synchronized void writeToFile(final List<String> content) {
+    private synchronized void persistDataIfNotDupicated(final List<String> content) {
         //try (BufferedWriter writer = new BufferedWriter(new FileWriter(NUMBERS_LOG))) {
-        content.forEach(code ->
-        {
-            try {
-                Files.write(Paths.get(NUMBERS_LOG),
-                        (code + System.lineSeparator()).getBytes(),
-                        StandardOpenOption.APPEND);
-            } catch (IOException e) {
-                e.printStackTrace();
+        content.forEach(code -> {
+            if (codes.add(Integer.parseInt(code))) {
+                try {
+                    Files.write(Paths.get(NUMBERS_LOG),
+                            (code + System.lineSeparator()).getBytes(),
+                            StandardOpenOption.APPEND);
+                } catch (IOException e) {
+                    throw new IllegalStateException(e);
+                }
             }
         });
 

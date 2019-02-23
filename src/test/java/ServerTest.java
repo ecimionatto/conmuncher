@@ -1,4 +1,3 @@
-import org.hamcrest.CoreMatchers;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.FixMethodOrder;
@@ -19,40 +18,33 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.hamcrest.CoreMatchers.notNullValue;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.Assert.fail;
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ServerTest {
+
     public static final String INVALID = "invalid";
 
-    private Server server;
+    private static Server server;
 
     @Before
     public void up() {
-        CompletableFuture.runAsync(() -> this.server = new Server());
+        CompletableFuture.runAsync(() -> {
+            ServerTest.server = new Server();
+        });
     }
 
     @After
-    public void down() {
-
-        Optional.ofNullable(server).ifPresent(Server::shutdown);
+    public void teardown() {
+        Optional.ofNullable(ServerTest.server).ifPresent((server) -> server.shutdown());
     }
 
     /*
 
-    The Application must accept input from at most 5 concurrent clients on TCP/IP
-port 4000.
-2. Input lines presented to the Application via its socket must either be composed of
-exactly nine decimal digits (e.g.: 314159265 or 007007009) immediately followed
-by a server­native newline sequence; or a termination sequence as detailed in
-#9, below.
-3. Numbers presented to the Application must include leading zeros as necessary
-to ensure they are each 9 decimal digits.
-4. The log file, to be named "numbers.log”, must be created anew and/or cleared
-when the Application starts.
-5. Only numbers may be written to the log file. Each number must be followed by a
-server­native newline sequence.
-6. No duplicate numbers may be written to the log file.
 7. Any data that does not conform to a valid line of input should be discarded and
 the client connection terminated immediately and without comment.
 
@@ -74,28 +66,113 @@ and perform a clean shutdown as quickly as possible.
      */
 
     @Test
-    public void shouldAcceptMaxOf5CncurrentConnctions() throws IOException, InterruptedException {
+    public void should1AcceptMaxOf5ConcurrentConnctions() throws IOException, InterruptedException {
 
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
-        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 200);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 2);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 2);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 1);
+        sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 0);
 
-        TimeUnit.SECONDS.sleep(5);
+        TimeUnit.SECONDS.sleep(1);
 
         final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
-        assertThat(reader.readLine(), CoreMatchers.notNullValue());
-        assertThat(reader.readLine(), CoreMatchers.notNullValue());
-        assertThat(reader.readLine(), CoreMatchers.notNullValue());
-        assertThat(reader.readLine(), CoreMatchers.notNullValue());
-        assertThat(reader.readLine(), CoreMatchers.notNullValue());
-        assertThat(reader.readLine(), CoreMatchers.nullValue());
+        assertThat(reader.readLine(), notNullValue());
+        assertThat(reader.readLine(), notNullValue());
+        assertThat(reader.readLine(), notNullValue());
+        assertThat(reader.readLine(), notNullValue());
+        assertThat(reader.readLine(), notNullValue());
+        assertThat(reader.readLine(), nullValue());
+        reader.close();
+
+    }
+
+    //2. Input lines presented to the Application via its socket must either be composed of
+    //exactly nine decimal digits (e.g.: 314159265 or 007007009) immediately followed
+    //by a server­native newline sequence; or a termination sequence as detailed in
+    //#9, below.
+
+    @Test
+    public void should2AcceptExactlyNineDecimalsOrTermination_WhenLineSeparator() throws IOException, InterruptedException {
+        final PrintWriter printWriter = new PrintWriter(
+                new Socket(localAddress(), 4000).getOutputStream(),
+                true);
+
+        String randomCode1 = randomCode();
+        String randomCode2 = randomCode();
+        String randomCode3 = randomCode();
+        printWriter.println(randomCode1 + System.lineSeparator() + randomCode2 + System.lineSeparator() + randomCode3);
+        String randomCode4 = randomCode();
+        printWriter.println(randomCode4);
+        String randomCode5 = randomCode();
+        String randomCode6 = randomCode();
+        printWriter.println(randomCode5 + System.lineSeparator() + randomCode6);
+
+        TimeUnit.SECONDS.sleep(1);
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG))) {
+            assertThat(reader.readLine(), equalTo(randomCode1));
+            assertThat(reader.readLine(), equalTo(randomCode2));
+            assertThat(reader.readLine(), equalTo(randomCode3));
+            assertThat(reader.readLine(), equalTo(randomCode4));
+            assertThat(reader.readLine(), equalTo(randomCode5));
+            assertThat(reader.readLine(), equalTo(randomCode6));
+            assertThat(reader.readLine(), nullValue());
+        }
+    }
+
+    @Test
+    public void should2AcceptExactlyNineDecimalsOrTermination_WhenInvalid10Digits_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatInvalidCodeIsNotAccepted("1234567890");
+    }
+
+    @Test
+    public void should3AcceptExactlyNineDecimalsOrTermination_WhenInvalid8Digits_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatInvalidCodeIsNotAccepted("12345678");
+    }
+
+    @Test
+    public void should4AcceptExactlyNineDecimalsOrTermination_WhenInvalidChars_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatInvalidCodeIsNotAccepted("123DF6789");
+    }
+
+    @Test
+    public void should5NotPrintDuplicatesInTheLogFile() throws IOException, InterruptedException {
+        final PrintWriter printWriter = new PrintWriter(
+                new Socket(localAddress(), 4000).getOutputStream(),
+                true);
+
+        String randomCode1 = randomCode();
+        String repeatedCode = randomCode();
+        String randomCode3 = randomCode();
+        printWriter.println(randomCode1 + System.lineSeparator() + repeatedCode + System.lineSeparator() + randomCode3);
+        printWriter.println(repeatedCode);
+        String randomCode4 = randomCode();
+        printWriter.println(repeatedCode + System.lineSeparator() + randomCode4);
+
+        TimeUnit.SECONDS.sleep(1);
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG))) {
+            assertThat(reader.readLine(), equalTo(randomCode1));
+            assertThat(reader.readLine(), equalTo(repeatedCode));
+            assertThat(reader.readLine(), equalTo(randomCode3));
+            assertThat(reader.readLine(), equalTo(randomCode4));
+            assertThat(reader.readLine(), nullValue());
+        }
+    }
+
+    private void moveToLineThatMatchesCode(final String lastValidCode, final BufferedReader reader) throws IOException {
+        try {
+            while (!reader.readLine().equals(lastValidCode)) {
+            }
+        } catch (NullPointerException e) {
+            fail("could not found code: " + lastValidCode);
+        }
     }
 
     private void sendMessagesRandomMessages(final Socket socket, final int numberOfMessages, final int blockSeconds) {
-        CompletableFuture.runAsync( () -> {
+        CompletableFuture.runAsync(() -> {
 
             try (PrintWriter printWriter = new PrintWriter(
                     socket.getOutputStream(),
@@ -103,10 +180,8 @@ and perform a clean shutdown as quickly as possible.
                 IntStream.range(0, numberOfMessages).forEach(i ->
                         printWriter.println(randomCode()));
                 TimeUnit.SECONDS.sleep(blockSeconds);
-            } catch (IOException e) {
-                e.printStackTrace();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
             }
         });
     }
@@ -146,10 +221,10 @@ and perform a clean shutdown as quickly as possible.
         TimeUnit.SECONDS.sleep(1);
 
         final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
-        assertThat(reader.readLine(), CoreMatchers.equalTo(code1));
-        assertThat(reader.readLine(), CoreMatchers.equalTo(code2));
-        assertThat(reader.readLine(), CoreMatchers.equalTo(code3));
-        assertThat(reader.readLine(), CoreMatchers.nullValue());
+        assertThat(reader.readLine(), equalTo(code1));
+        assertThat(reader.readLine(), equalTo(code2));
+        assertThat(reader.readLine(), equalTo(code3));
+        assertThat(reader.readLine(), nullValue());
 
     }
 
@@ -178,9 +253,9 @@ and perform a clean shutdown as quickly as possible.
         TimeUnit.SECONDS.sleep(1);
 
         final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
-        assertThat(reader.readLine(), CoreMatchers.equalTo(code1));
-        assertThat(reader.readLine(), CoreMatchers.equalTo(INVALID));
-        assertThat(reader.readLine(), CoreMatchers.nullValue());
+        assertThat(reader.readLine(), equalTo(code1));
+        assertThat(reader.readLine(), equalTo(INVALID));
+        assertThat(reader.readLine(), nullValue());
 
     }
 
@@ -188,23 +263,23 @@ and perform a clean shutdown as quickly as possible.
         return String.format("%09d", Math.abs(new Random().nextInt(1000000000)));
     }
 
-    public void shouldAcceptMaxOf5ConcurrentRequests() {
+    private void assertThatInvalidCodeIsNotAccepted(final String invalidCode) throws IOException, InterruptedException {
+        try (PrintWriter printWriter = new PrintWriter(new Socket(localAddress(), 4000).getOutputStream(), true)) {
 
-    }
+            printWriter.println(randomCode());
+            String lastValidCode = randomCode();
+            printWriter.println(lastValidCode);
+            printWriter.println(invalidCode);
+            printWriter.println(randomCode());
+            printWriter.close();
 
-    public void shoudlAccept9DecimalDigits() {
+            TimeUnit.SECONDS.sleep(1);
 
-    }
+            final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
+            moveToLineThatMatchesCode(lastValidCode, reader);
 
-    public void shoudlAccept9DecimalDigitsFollowedByNewLine() {
-
-    }
-
-    public void shoudlTerminateClientConnectionIfPayladIsInvalid() {
-
-    }
-
-    public void shoudlCreateMNumbersLogFile() {
+            assertThat(reader.readLine(), nullValue());
+        }
 
     }
 
