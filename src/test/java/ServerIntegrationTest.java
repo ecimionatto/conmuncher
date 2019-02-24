@@ -16,7 +16,6 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static java.util.concurrent.CompletableFuture.runAsync;
@@ -28,8 +27,6 @@ import static org.junit.Assert.fail;
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ServerIntegrationTest {
-
-    private AtomicInteger messageCounter = new AtomicInteger(0);
 
     @Before
     public void up() {
@@ -64,7 +61,7 @@ public class ServerIntegrationTest {
             assertThat(reader.readLine(), nullValue());
         }
 
-        assertReport(6, 0, messageCounter.addAndGet(6));
+        assertReport(6, 0, 6);
 
     }
 
