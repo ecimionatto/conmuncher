@@ -5,6 +5,12 @@ plugins {
 group 'com.ecimio'
 version '1.0-SNAPSHOT'
 
+jar {
+    manifest {
+        attributes 'Main-Class': 'Server'
+    }
+}
+
 sourceCompatibility = 1.8
 
 repositories {
