@@ -2,7 +2,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.Charset;
@@ -18,11 +17,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static java.util.concurrent.CompletableFuture.runAsync;
 
 public class Server {
 
@@ -34,14 +32,14 @@ public class Server {
     private final Set<Integer> uniqueCodes = Collections.synchronizedSet(new HashSet<>());
     private final AtomicInteger repeatedCodesPerRun = new AtomicInteger();
     private final AtomicInteger uniqueCodesPerRun = new AtomicInteger();
-    private ServerSocket serverSocket;
 
     private final ExecutorService connectionExecutor =
             Executors.newFixedThreadPool(5);
 
     private final ScheduledExecutorService reportExecutor =
             Executors.newSingleThreadScheduledExecutor();
-    private boolean shutdown = false;
+
+    private AtomicBoolean shutdown = new AtomicBoolean(false);
 
     public synchronized static Server getInstance() {
         if (Server.serverInstance == null) {
@@ -53,15 +51,14 @@ public class Server {
     private Server() {
         cleanUp();
         scheduleReport();
-        receiveConnections();
+        receiveConnectionsLoop();
     }
 
-    private void receiveConnections() {
-        try {
-            serverSocket = new ServerSocket(4000);
-            while (!this.shutdown) {
+    private void receiveConnectionsLoop() {
+        try (ServerSocket serverSocket = new ServerSocket(4000)) {
+            while (!this.shutdown.get()) {
                 Socket socket = serverSocket.accept();
-                connectionExecutor.execute(() -> processRequest(socket));
+                connectionExecutor.execute(() -> processRequestLoop(socket));
             }
         } catch (IOException e) {
             throw new IllegalStateException(e);
@@ -82,20 +79,26 @@ public class Server {
     public static void cleanUp() {
         try {
             File numbersLog = new File(NUMBERS_LOG);
-            if (numbersLog.exists()) numbersLog.delete();
-            numbersLog.createNewFile();
+            if (numbersLog.exists()) {
+                if (!numbersLog.delete()) {
+                    throw new IllegalStateException("could not delete number.log");
+                }
+            }
+            if (!numbersLog.createNewFile()) {
+                throw new IllegalStateException("could not create number.log");
+            }
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    private void processRequest(final Socket socket) {
+    private void processRequestLoop(final Socket socket) {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
             String inputLine;
             while ((inputLine = in.readLine()) != null) {
                 if (TERMINATE_SIGNAL.equals(inputLine)) {
-                    bey(socket);
+                    this.shutdown();
                     break;
                 } else {
                     final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
@@ -111,29 +114,24 @@ public class Server {
         }
     }
 
-    private void bey(final Socket socket) throws IOException {
-        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-        out.println("bye");
-    }
-
     private boolean isRequestInvalid(final List<String> content) {
-        return content.stream().anyMatch(code ->
-                !Pattern.matches("[0-9]+", code) || code.length() != 9);
+        return content.stream().anyMatch(code -> {
+            if (code != null) {
+                return !Pattern.matches("[0-9]+", code) || code.length() != 9;
+            } else {
+                return true;
+            }
+        });
     }
 
     public void shutdown() {
-        this.shutdown = true;
-        this.connectionExecutor.shutdownNow();
-        while (!this.connectionExecutor.isShutdown()) {
-        }
-
-        this.reportExecutor.shutdownNow();
-        while (!this.reportExecutor.isShutdown()) {
-        }
-
+        this.shutdown = new AtomicBoolean(true);
+        this.connectionExecutor.shutdown();
+        this.reportExecutor.shutdown();
         try {
-            serverSocket.close();
-        } catch (IOException e) {
+            this.connectionExecutor.awaitTermination(1, TimeUnit.MINUTES);
+            this.reportExecutor.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
             throw new IllegalStateException(e);
         }
     }

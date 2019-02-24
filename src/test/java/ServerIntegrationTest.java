@@ -11,10 +11,12 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static java.util.concurrent.CompletableFuture.runAsync;
@@ -25,53 +27,23 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.fail;
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-public class ServerTest {
+public class ServerIntegrationTest {
+
+    private AtomicInteger messageCounter = new AtomicInteger(0);
 
     @Before
     public void up() {
+        Server.cleanUp();
         runAsync(() -> Server.getInstance());
     }
 
     @After
     public void teardown() throws InterruptedException {
-        Server.cleanUp();
         Server.terminate();
     }
 
-    /*
-        9. If any connected client writes a single line with only the word "terminate" followed
-        by a server­native newline sequence, the Application must disconnect all clients
-        and perform a clean shutdown as quickly as possible.
-        10.Clearly state all of the assumptions you made in completing the Application.
-     */
-
-
     @Test
-    public void should1PrintReportToStdoutEvery10Secs_SingleRun() throws InterruptedException, IOException {
-        final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(outContent));
-
-        String repeatedCode = randomCode();
-        try (final PrintWriter printWriter = new PrintWriter(
-                new Socket(localAddress(), 4000).getOutputStream(),
-                true)) {
-            printWriter.println(randomCode() + System.lineSeparator() + repeatedCode + System.lineSeparator() + randomCode());
-            printWriter.println(repeatedCode);
-            printWriter.println(repeatedCode + System.lineSeparator() + randomCode());
-            printWriter.println(randomCode());
-        }
-
-        TimeUnit.SECONDS.sleep(10);
-
-        assertThat(outContent.toString(),
-                equalTo("Received 5 unique numbers, 2 duplicates. Unique total: 5" + System.lineSeparator()));
-
-        outContent.close();
-
-    }
-
-    @Test
-    public void should2AcceptMaxOf5ConcurrentConnctions() throws IOException, InterruptedException {
+    public void should1AcceptMaxOf5ConcurrentConnctions() throws IOException, InterruptedException {
 
         sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
         sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
@@ -88,8 +60,11 @@ public class ServerTest {
             assertThat(reader.readLine(), notNullValue());
             assertThat(reader.readLine(), notNullValue());
             assertThat(reader.readLine(), notNullValue());
+            //only 5 concurrent
             assertThat(reader.readLine(), nullValue());
         }
+
+        assertReport(6, 0, messageCounter.addAndGet(6));
 
     }
 
@@ -99,7 +74,7 @@ public class ServerTest {
     //#9, below.
 
     @Test
-    public void should3AcceptExactlyNineDecimalsOrTermination_WhenLineSeparator() throws IOException, InterruptedException {
+    public void should2AcceptExactlyNineDecimalsOrTermination_UsingLineSeparator() throws IOException, InterruptedException {
 
         String randomCode1 = randomCode();
         String randomCode2 = randomCode();
@@ -127,30 +102,52 @@ public class ServerTest {
             assertThat(reader.readLine(), equalTo(randomCode6));
             assertThat(reader.readLine(), nullValue());
         }
+
+        assertReport(6, 0, 12);
+
     }
 
     @Test
-    public void should4AcceptExactlyNineDecimalsOrTermination_WhenInvalid10Digits_ThenEndConnection() throws IOException, InterruptedException {
-        assertThatInvalidCodeIsNotAccepted("1234567890");
+    public void should3AcceptExactlyNineDecimalsOrTermination_WhenInvalid10Digits_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatConnectionIsTerminatedAfterCode("1234567890");
+        //2 valid codes are sent before invalid
+        assertReport(2, 0, 14);
     }
 
     @Test
-    public void should5AcceptExactlyNineDecimalsOrTermination_WhenInvalid8Digits_ThenEndConnection() throws IOException, InterruptedException {
-        assertThatInvalidCodeIsNotAccepted("12345678");
+    public void should4AcceptExactlyNineDecimalsOrTermination_WhenInvalid8Digits_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatConnectionIsTerminatedAfterCode("12345678");
+        //2 valid codes are sent before invalid
+        assertReport(2, 0, 16);
     }
 
     @Test
-    public void should6AcceptExactlyNineDecimalsOrTermination_WhenInvalidChars_ThenEndConnection() throws IOException, InterruptedException {
-        assertThatInvalidCodeIsNotAccepted("123DF6789");
+    public void should5AcceptExactlyNineDecimalsOrTermination_WhenInvalidChars_ThenEndConnection() throws IOException, InterruptedException {
+        assertThatConnectionIsTerminatedAfterCode("123DF6789");
+        //2 valid codes are sent before invalid
+        assertReport(2, 0, 18);
     }
 
-    @Test
-    public void should7NotPrintDuplicatesInTheLogFile() throws IOException, InterruptedException {
 
-        String randomCode1 = randomCode();
-        String repeatedCode = randomCode();
-        String randomCode3 = randomCode();
-        String randomCode4 = randomCode();
+    /*
+        8. Every 10 seconds, the Application must print a report to standard output:
+        i. The difference since the last report of the count of new unique numbers
+        that have been received.
+        ii. The difference since the last report of the count of new duplicate numbers
+        that have been received.
+        iii. The total number of unique numbers received for this run of the
+        Application.
+        iv. Example text for #8: Received 50 unique numbers, 2 duplicates. Unique
+        total: 567231
+    */
+
+    @Test
+    public void should6NotPrintDuplicatesInTheLogFile() throws IOException, InterruptedException {
+
+        final String randomCode1 = randomCode();
+        final String repeatedCode = randomCode();
+        final String randomCode3 = randomCode();
+        final String randomCode4 = randomCode();
 
         try (PrintWriter printWriter = new PrintWriter(
                 new Socket(localAddress(), 4000).getOutputStream(),
@@ -170,19 +167,26 @@ public class ServerTest {
             assertThat(reader.readLine(), equalTo(randomCode4));
             assertThat(reader.readLine(), nullValue());
         }
+
+        assertReport(4, 2, 22);
+
     }
 
     /*
-        8. Every 10 seconds, the Application must print a report to standard output:
-        i. The difference since the last report of the count of new unique numbers
-        that have been received.
-        ii. The difference since the last report of the count of new duplicate numbers
-        that have been received.
-        iii. The total number of unique numbers received for this run of the
-        Application.
-        iv. Example text for #8: Received 50 unique numbers, 2 duplicates. Unique
-        total: 567231
-    */
+    9. If any connected client writes a single line with only the word "terminate" followed
+    by a server­native newline sequence, the Application must disconnect all clients
+    and perform a clean shutdown as quickly as possible.
+    10.Clearly state all of the assumptions you made in completing the Application.
+ */
+    @Test(expected = java.net.SocketException.class)
+    public void should6TerminateAndStopReceivingConnections() throws IOException, InterruptedException {
+        try (Socket socket = new Socket(localAddress(), 4000)) {
+            try (PrintWriter printWriter = new PrintWriter(socket.getOutputStream(), true)) {
+                printWriter.println("terminate");
+            }
+            socket.connect(new InetSocketAddress(localAddress(), 4000), 1000);
+        }
+    }
 
     private String localAddress() {
         try {
@@ -196,17 +200,15 @@ public class ServerTest {
         return String.format("%09d", Math.abs(new Random().nextInt(1000000000)));
     }
 
-    private void assertThatInvalidCodeIsNotAccepted(final String invalidCode) throws IOException, InterruptedException {
+    private void assertThatConnectionIsTerminatedAfterCode(final String invalidCode) throws IOException, InterruptedException {
         try (PrintWriter printWriter = new PrintWriter(new Socket(localAddress(), 4000).getOutputStream(), true)) {
-
             printWriter.println(randomCode());
             String lastValidCode = randomCode();
             printWriter.println(lastValidCode);
             printWriter.println(invalidCode);
             printWriter.println(randomCode());
-            printWriter.close();
 
-            TimeUnit.SECONDS.sleep(2);
+            TimeUnit.SECONDS.sleep(1);
 
             final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
             moveToLineThatMatchesCode(lastValidCode, reader);
@@ -216,17 +218,17 @@ public class ServerTest {
 
     }
 
-    private int moveToLineThatMatchesCode(final String lastValidCode, final BufferedReader reader) throws IOException {
-        int lenght = 0;
+    private int moveToLineThatMatchesCode(final String code, final BufferedReader reader) throws IOException {
+        int length = 0;
         try {
             do {
-                lenght++;
+                length++;
             }
-            while (!reader.readLine().equals(lastValidCode));
+            while (!reader.readLine().equals(code));
         } catch (NullPointerException e) {
-            fail("could not found code: " + lastValidCode);
+            fail("could not found code: " + code);
         }
-        return lenght;
+        return length;
     }
 
     private void sendMessagesRandomMessages(final Socket socket, final int numberOfMessages, final int blockSeconds) {
@@ -241,6 +243,15 @@ public class ServerTest {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private void assertReport(final int uniques, final int duplicated, final int total) throws IOException, InterruptedException {
+        try (final ByteArrayOutputStream outContent = new ByteArrayOutputStream()) {
+            System.setOut(new PrintStream(outContent));
+            TimeUnit.SECONDS.sleep(9);
+            assertThat(outContent.toString(),
+                    equalTo("Received " + uniques + " unique numbers, " + duplicated + " duplicates. Unique total: " + total + System.lineSeparator()));
+        }
     }
 
 }
