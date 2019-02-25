@@ -176,7 +176,7 @@ public class ServerIntegrationTest {
     10.Clearly state all of the assumptions you made in completing the Application.
  */
     @Test(expected = java.net.SocketException.class)
-    public void should6TerminateAndStopReceivingConnections() throws IOException, InterruptedException {
+    public void should7TerminateAndStopReceivingConnections() throws IOException, InterruptedException {
         try (Socket socket = new Socket(localAddress(), 4000)) {
             try (PrintWriter printWriter = new PrintWriter(socket.getOutputStream(), true)) {
                 printWriter.println("terminate");
