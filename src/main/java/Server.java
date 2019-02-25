@@ -1,15 +1,9 @@
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -17,12 +11,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class Server {
 
-    public static final String NUMBERS_LOG = "numbers.log";
     public static final String TERMINATE_SIGNAL = "terminate";
 
     private static Server serverInstance;
@@ -35,7 +27,8 @@ public class Server {
 
     private final AtomicBoolean isShutdownInitiated = new AtomicBoolean(false);
 
-    private final Monitor monitor = new Monitor();
+    private final Monitor monitor;
+    private final Repository repository;
 
     public synchronized static Server getInstance() {
         if (Server.serverInstance == null) {
@@ -45,7 +38,8 @@ public class Server {
     }
 
     private Server() {
-        cleanUp();
+        this.monitor = new Monitor();
+        this.repository = new Repository(monitor);
         scheduleReport();
         receiveConnectionsLoop();
     }
@@ -66,22 +60,6 @@ public class Server {
                 10, 10, TimeUnit.SECONDS);
     }
 
-    public static void cleanUp() {
-        try {
-            File numbersLog = new File(NUMBERS_LOG);
-            if (numbersLog.exists()) {
-                if (!numbersLog.delete()) {
-                    throw new IllegalStateException("could not delete number.log");
-                }
-            }
-            if (!numbersLog.createNewFile()) {
-                throw new IllegalStateException("could not create number.log");
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
     private void processRequestLoop(final Socket socket) {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
@@ -94,10 +72,10 @@ public class Server {
                     final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
                             .filter(line -> line != null && !line.isEmpty())
                             .collect(Collectors.toList());
-                    if (isRequestInvalid(receivedData)) {
+                    if (repository.isRequestInvalid(receivedData)) {
                         break;
                     }
-                    save(receivedData);
+                    repository.save(receivedData);
                 }
             }
         } catch (IOException e) {
@@ -105,15 +83,6 @@ public class Server {
         }
     }
 
-    private boolean isRequestInvalid(final List<String> content) {
-        return content.stream().anyMatch(code -> {
-            if (code != null) {
-                return !Pattern.matches("[0-9]+", code) || code.length() != 9;
-            } else {
-                return true;
-            }
-        });
-    }
 
     public void shutdown() {
         this.isShutdownInitiated.set(true);
@@ -126,24 +95,6 @@ public class Server {
             throw new IllegalStateException(e);
         } finally {
             System.exit(0);
-        }
-    }
-
-    private void save(final List<String> content) {
-        Path path = Paths.get(NUMBERS_LOG);
-        try (BufferedWriter writer = Files.newBufferedWriter(path, Charset.defaultCharset(), StandardOpenOption.APPEND)) {
-            content.forEach(code -> {
-                if (monitor.add(Integer.parseInt(code))) {
-                    try {
-                        writer.write(code);
-                        writer.newLine();
-                    } catch (IOException e) {
-                        throw new IllegalStateException(e);
-                    }
-                }
-            });
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
         }
     }
 
