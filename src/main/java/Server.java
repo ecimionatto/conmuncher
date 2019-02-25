@@ -1,4 +1,5 @@
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -6,19 +7,16 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -29,17 +27,15 @@ public class Server {
 
     private static Server serverInstance;
 
-    private final Set<Integer> uniqueCodes = Collections.synchronizedSet(new HashSet<>());
-    private final AtomicInteger repeatedCodesPerRun = new AtomicInteger();
-    private final AtomicInteger uniqueCodesPerRun = new AtomicInteger();
-
     private final ExecutorService connectionExecutor =
             Executors.newFixedThreadPool(5);
 
     private final ScheduledExecutorService reportExecutor =
             Executors.newSingleThreadScheduledExecutor();
 
-    private AtomicBoolean shutdown = new AtomicBoolean(false);
+    private final AtomicBoolean isShutdownInitiated = new AtomicBoolean(false);
+
+    private final Monitor monitor = new Monitor();
 
     public synchronized static Server getInstance() {
         if (Server.serverInstance == null) {
@@ -56,7 +52,7 @@ public class Server {
 
     private void receiveConnectionsLoop() {
         try (ServerSocket serverSocket = new ServerSocket(4000)) {
-            while (!this.shutdown.get()) {
+            while (!this.isShutdownInitiated.get()) {
                 Socket socket = serverSocket.accept();
                 connectionExecutor.execute(() -> processRequestLoop(socket));
             }
@@ -66,14 +62,8 @@ public class Server {
     }
 
     private void scheduleReport() {
-        reportExecutor.scheduleAtFixedRate(() -> printReport(), 10, 10, TimeUnit.SECONDS);
-    }
-
-    private void printReport() {
-        System.out.printf("Received %d unique numbers, %d duplicates. Unique total: %d%n",
-                uniqueCodesPerRun.intValue(), repeatedCodesPerRun.intValue(), uniqueCodes.size());
-        repeatedCodesPerRun.set(0);
-        uniqueCodesPerRun.set(0);
+        reportExecutor.scheduleAtFixedRate(() -> monitor.printReport(),
+                10, 10, TimeUnit.SECONDS);
     }
 
     public static void cleanUp() {
@@ -96,12 +86,13 @@ public class Server {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
             String inputLine;
-            while ((inputLine = in.readLine()) != null) {
+            while ((inputLine = in.readLine()) != null && !this.isShutdownInitiated.get()) {
                 if (TERMINATE_SIGNAL.equals(inputLine)) {
                     this.shutdown();
                     break;
                 } else {
                     final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
+                            .filter(line -> line != null && !line.isEmpty())
                             .collect(Collectors.toList());
                     if (isRequestInvalid(receivedData)) {
                         break;
@@ -125,32 +116,35 @@ public class Server {
     }
 
     public void shutdown() {
-        this.shutdown = new AtomicBoolean(true);
-        this.connectionExecutor.shutdown();
-        this.reportExecutor.shutdown();
+        this.isShutdownInitiated.set(true);
         try {
-            this.connectionExecutor.awaitTermination(1, TimeUnit.MINUTES);
-            this.reportExecutor.awaitTermination(1, TimeUnit.MINUTES);
+            this.connectionExecutor.shutdown();
+            this.connectionExecutor.awaitTermination(15, TimeUnit.SECONDS);
+            this.reportExecutor.shutdown();
+            this.reportExecutor.awaitTermination(15, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             throw new IllegalStateException(e);
+        } finally {
+            System.exit(0);
         }
     }
 
-    private synchronized void save(final List<String> content) {
-        content.forEach(code -> {
-            if (uniqueCodes.add(Integer.parseInt(code))) {
-                uniqueCodesPerRun.incrementAndGet();
-                try {
-                    Files.write(Paths.get(NUMBERS_LOG),
-                            (code + System.lineSeparator()).getBytes(),
-                            StandardOpenOption.APPEND);
-                } catch (IOException e) {
-                    throw new IllegalStateException(e);
+    private void save(final List<String> content) {
+        Path path = Paths.get(NUMBERS_LOG);
+        try (BufferedWriter writer = Files.newBufferedWriter(path, Charset.defaultCharset(), StandardOpenOption.APPEND)) {
+            content.forEach(code -> {
+                if (monitor.add(Integer.parseInt(code))) {
+                    try {
+                        writer.write(code);
+                        writer.newLine();
+                    } catch (IOException e) {
+                        throw new IllegalStateException(e);
+                    }
                 }
-            } else {
-                repeatedCodesPerRun.incrementAndGet();
-            }
-        });
+            });
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public static void terminate() {
