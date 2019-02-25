@@ -35,7 +35,7 @@ public class ServerIntegrationTest {
     }
 
     @After
-    public void teardown() throws InterruptedException {
+    public void teardown() {
         Server.terminate();
     }
 
@@ -174,12 +174,12 @@ public class ServerIntegrationTest {
     by a server­native newline sequence, the Application must disconnect all clients
     and perform a clean shutdown as quickly as possible.
     10.Clearly state all of the assumptions you made in completing the Application.
- */
+    */
     @Test(expected = java.net.SocketException.class)
     public void should7TerminateAndStopReceivingConnections() throws IOException, InterruptedException {
         try (Socket socket = new Socket(localAddress(), 4000)) {
             try (PrintWriter printWriter = new PrintWriter(socket.getOutputStream(), true)) {
-                printWriter.println("terminate");
+                printWriter.println("terminate" + System.lineSeparator());
             }
             socket.connect(new InetSocketAddress(localAddress(), 4000), 1000);
         }
