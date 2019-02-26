@@ -14,24 +14,25 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static java.util.concurrent.CompletableFuture.runAsync;
+import static java.util.stream.Collectors.toList;
 import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.notNullValue;
-import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertTrue;
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ServerIntegrationTest {
 
     @Before
-    public void up() {
-        Server.cleanUp();
+    public void up() throws InterruptedException {
+        Repository.cleanUp();
         runAsync(() -> Server.getInstance());
+        TimeUnit.MILLISECONDS.sleep(300);
     }
 
     @After
@@ -41,7 +42,6 @@ public class ServerIntegrationTest {
 
     @Test
     public void should1AcceptMaxOf5ConcurrentConnctions() throws IOException, InterruptedException {
-
         sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
         sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 3);
         sendMessagesRandomMessages(new Socket(localAddress(), 4000), 1, 2);
@@ -51,14 +51,8 @@ public class ServerIntegrationTest {
 
         TimeUnit.SECONDS.sleep(1);
 
-        try (final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG))) {
-            assertThat(reader.readLine(), notNullValue());
-            assertThat(reader.readLine(), notNullValue());
-            assertThat(reader.readLine(), notNullValue());
-            assertThat(reader.readLine(), notNullValue());
-            assertThat(reader.readLine(), notNullValue());
-            //only 5 concurrent
-            assertThat(reader.readLine(), nullValue());
+        try (final BufferedReader reader = new BufferedReader(new FileReader(Repository.NUMBERS_LOG))) {
+            assertThat(reader.lines().count(), equalTo(5L));
         }
 
         assertReport(6, 0, 6);
@@ -90,14 +84,15 @@ public class ServerIntegrationTest {
         }
         TimeUnit.SECONDS.sleep(2);
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG))) {
-            assertThat(reader.readLine(), equalTo(randomCode1));
-            assertThat(reader.readLine(), equalTo(randomCode2));
-            assertThat(reader.readLine(), equalTo(randomCode3));
-            assertThat(reader.readLine(), equalTo(randomCode4));
-            assertThat(reader.readLine(), equalTo(randomCode5));
-            assertThat(reader.readLine(), equalTo(randomCode6));
-            assertThat(reader.readLine(), nullValue());
+        try (BufferedReader reader = new BufferedReader(new FileReader(Repository.NUMBERS_LOG))) {
+            List<String> lines = reader.lines().collect(toList());
+            assertThat(lines.size(), equalTo(6));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode1)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode2)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode3)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode4)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode5)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode6)));
         }
 
         assertReport(6, 0, 12);
@@ -157,12 +152,13 @@ public class ServerIntegrationTest {
 
         TimeUnit.SECONDS.sleep(1);
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG))) {
-            assertThat(reader.readLine(), equalTo(randomCode1));
-            assertThat(reader.readLine(), equalTo(repeatedCode));
-            assertThat(reader.readLine(), equalTo(randomCode3));
-            assertThat(reader.readLine(), equalTo(randomCode4));
-            assertThat(reader.readLine(), nullValue());
+        try (BufferedReader reader = new BufferedReader(new FileReader(Repository.NUMBERS_LOG))) {
+            List<String> lines = reader.lines().collect(toList());
+            assertThat(lines.size(), equalTo(4));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode1)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(repeatedCode)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode3)));
+            assertTrue(lines.stream().anyMatch(line -> line.equals(randomCode4)));
         }
 
         assertReport(4, 2, 22);
@@ -199,7 +195,8 @@ public class ServerIntegrationTest {
 
     private void assertThatConnectionIsTerminatedAfterCode(final String invalidCode) throws IOException, InterruptedException {
         try (PrintWriter printWriter = new PrintWriter(new Socket(localAddress(), 4000).getOutputStream(), true)) {
-            printWriter.println(randomCode());
+            String validCode = randomCode();
+            printWriter.println(validCode);
             String lastValidCode = randomCode();
             printWriter.println(lastValidCode);
             printWriter.println(invalidCode);
@@ -207,25 +204,14 @@ public class ServerIntegrationTest {
 
             TimeUnit.SECONDS.sleep(1);
 
-            final BufferedReader reader = new BufferedReader(new FileReader(Server.NUMBERS_LOG));
-            moveToLineThatMatchesCode(lastValidCode, reader);
-
-            assertThat(reader.readLine(), nullValue());
-        }
-
-    }
-
-    private int moveToLineThatMatchesCode(final String code, final BufferedReader reader) throws IOException {
-        int length = 0;
-        try {
-            do {
-                length++;
+            try (BufferedReader reader = new BufferedReader(new FileReader(Repository.NUMBERS_LOG))) {
+                List<String> lines = reader.lines().collect(toList());
+                assertThat(lines.size(), equalTo(2));
+                assertTrue(lines.stream().anyMatch(line -> line.equals(validCode)));
+                assertTrue(lines.stream().anyMatch(line -> line.equals(lastValidCode)));
             }
-            while (!reader.readLine().equals(code));
-        } catch (NullPointerException e) {
-            fail("could not found code: " + code);
         }
-        return length;
+
     }
 
     private void sendMessagesRandomMessages(final Socket socket, final int numberOfMessages, final int blockSeconds) {
