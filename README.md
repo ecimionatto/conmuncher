@@ -3,21 +3,20 @@
 
 ## Design
 - 3 thread pools have been provided to increase performance: 
-    - Report execution scheduled pool .
+    - Report execution scheduled pool.
     - 5 concurrent connections limit is enforce by connection thread pool size.
     - Repository thread pool to improve performance synchonized methods related to keep atomic counting of records. 
-- for performance reasons, Monitor is not immutable to avoid creating new instances.
-- for organization's purpose, 3 objects are provided:
+- For performance reasons, Monitor is not immutable to avoid creating new instances.
+- For organization purpose, 3 objects are provided:
     - Server starts and ends sockets connections.
     - Repository is responsible for saving records to file.
     - Monitor is responsible for repoting accurate numbers.
 
 ## Assumptions
-- lines can include more than one sequence of nine digits as long as newline sequences are present between codes.
-- system processing is limited to 5 client connections, but system is not enforcing unique client connections. 
+- A connection can include more than one sequence of nine digits as long as newline sequences are present between codes.
+- System processing is limited to 5 client connections, but system is not enforcing unique client connections. 
 - Monitor has synchronized methods to make sure counter operations are performed atomically, this has performance implications but ensures the correctness of reporting.
-- testing could be improved by using a mock library, but for simplicity reasons the applications was tested using a combination of integration, unit, and load tests without mocking .
-
+- Testing could be improved by using a mock library, but for simplicity reasons the applications was tested using a combination of integration, unit, and load tests without mocking.
 
 ## Requirements
 - Java 1.8
