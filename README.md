@@ -4,17 +4,17 @@
 ## Design
 - 3 thread pools have been provided to increase performance: 
     - Report execution scheduled pool.
-    - 5 concurrent connections limit is enforce by connection thread pool size.
-    - Repository thread pool to improve performance synchonized methods related to keep atomic counting of records. 
-- For performance reasons, Monitor is not immutable to avoid creating new instances.
+    - 5 concurrent connections limit is enforced by connection thread pool size.
+    - Repository thread pool mproves the performance due to synchonized methods to keep atomic counting of records. 
+- For performance reasons Monitor is not immutable in order to avoid creating tons of new instances.
 - For organization purpose, 3 objects are provided:
-    - Server starts and ends sockets connections.
-    - Repository is responsible for saving records to file.
-    - Monitor is responsible for repoting accurate numbers.
+    - Server singleton starts and ends socket's connections.
+    - Repository object is responsible for saving records to file.
+    - Monitor object is responsible for reporting accurate numbers every 10secs.
 
 ## Assumptions
 - A connection can include more than one sequence of nine digits as long as newline sequences are present between codes.
-- System processing is limited to 5 client connections, but system is not enforcing unique client connections. 
+- System processing is limited to 5 client connections, but it does not enforce unique client connections. 
 - Monitor has synchronized methods to make sure counter operations are performed atomically, this has performance implications but ensures the correctness of reporting.
 - Testing could be improved by using a mock library, but for simplicity reasons the applications was tested using a combination of integration, unit, and load tests without mocking.
 
@@ -38,7 +38,7 @@ Because the project uses integration tests, it is possible that tests may fail d
 ```gradle clean build```
 
 ## Stress Test 
-Using local java client test/StressTest.java performance numbers:
+Using src/intTest/StressTest.java while running application at the same host displayed the following results:
 ```
 APQLHTD66B3A9F:conmuncher ecimio$ java -jar build/libs/conmuncher-1.0-SNAPSHOT.jar
 Received 0 unique numbers, 0 duplicates. Unique total: 0
@@ -50,4 +50,4 @@ Received 193795 unique numbers, 153 duplicates. Unique total: 841697
 Received 184937 unique numbers, 191 duplicates. Unique total: 1026634
 Received 182576 unique numbers, 214 duplicates. Unique total: 1209210
 ``` 
-Total Received under 1 minute message displayed with 10secs interval is per requirement.
+Totals received under 1 minute; message displayed with 10secs interval per requirement.
