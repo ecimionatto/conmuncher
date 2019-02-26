@@ -1,13 +1,15 @@
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.nio.charset.Charset;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousServerSocketChannel;
+import java.nio.channels.AsynchronousSocketChannel;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,10 +47,26 @@ public class Server {
     }
 
     private void receiveConnectionsLoop() {
-        try (ServerSocket serverSocket = new ServerSocket(4000)) {
-            while (!this.isShutdownInitiated.get()) {
-                Socket socket = serverSocket.accept();
-                connectionExecutor.execute(() -> processRequestLoop(socket));
+
+        try (AsynchronousServerSocketChannel server
+                     = AsynchronousServerSocketChannel.open()) {
+
+            final InetSocketAddress inetSocketAddress = new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), 4000);
+            ;
+            try (AsynchronousServerSocketChannel serverSocketChannel = server.bind(inetSocketAddress)) {
+
+                Future<AsynchronousSocketChannel> socket = serverSocketChannel.accept();
+                while (!this.isShutdownInitiated.get()) {
+                    AsynchronousSocketChannel socketChannel = null;
+                    try {
+                        socketChannel = socket.get();
+                    } catch (InterruptedException | ExecutionException e) {
+                        throw new IllegalStateException(e);
+                    }
+                    if ((socketChannel != null) && (socketChannel.isOpen())) {
+                        processRequestLoop(socketChannel);
+                    }
+                }
             }
         } catch (IOException e) {
             throw new IllegalStateException(e);
@@ -60,29 +78,50 @@ public class Server {
                 10, 10, TimeUnit.SECONDS);
     }
 
-    private void processRequestLoop(final Socket socket) {
-        try (BufferedReader in = new BufferedReader(
-                new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
-            String inputLine;
-            while ((inputLine = in.readLine()) != null && !this.isShutdownInitiated.get()) {
-                if (TERMINATE_SIGNAL.equals(inputLine)) {
-                    this.shutdown();
-                    break;
-                } else {
-                    final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
-                            .filter(line -> line != null && !line.isEmpty())
-                            .collect(Collectors.toList());
-                    if (repository.isRequestInvalid(receivedData)) {
-                        break;
-                    }
-                    repository.save(receivedData);
-                }
+    private void processRequestLoop(final AsynchronousSocketChannel socket) {
+        while (socket.isOpen() && !this.isShutdownInitiated.get()) {
+
+            ByteBuffer buffer = ByteBuffer.allocate(10);
+            Future<Integer> read = socket.read(buffer);
+            try {
+                read.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new IllegalStateException(e);
             }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
+
+            String inputLine = new String(buffer.array());
+            if (!processData(inputLine)){
+                buffer.clear();
+                break;
+            }
+            buffer.clear();
         }
+//        }
+//
+//
+//        try (BufferedReader in = new BufferedReader(socket.re
+//                new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
+//            String inputLine;
+//            while ((inputLine = in.readLine()) != null && !this.isShutdownInitiated.get()) {
+//                if (processData(inputLine)) break;
+//            }
     }
 
+    private boolean processData(final String inputLine) {
+        if (TERMINATE_SIGNAL.equals(inputLine)) {
+            this.shutdown();
+            return false;
+        } else {
+            final List<String> receivedData = Arrays.stream(inputLine.split(System.lineSeparator()))
+                    .filter(line -> line != null && !line.isEmpty())
+                    .collect(Collectors.toList());
+            if (repository.isRequestInvalid(receivedData)) {
+                return false;
+            }
+            repository.save(receivedData);
+        }
+        return true;
+    }
 
     public void shutdown() {
         this.isShutdownInitiated.set(true);

@@ -219,8 +219,7 @@ public class ServerIntegrationTest {
             try (PrintWriter printWriter = new PrintWriter(
                     socket.getOutputStream(),
                     true)) {
-                IntStream.range(0, numberOfMessages).forEach(i ->
-                        printWriter.println(randomCode()));
+                printWriter.println(randomCode() + System.lineSeparator());
                 TimeUnit.SECONDS.sleep(blockSeconds);
             } catch (IOException | InterruptedException e) {
                 throw new RuntimeException(e);
