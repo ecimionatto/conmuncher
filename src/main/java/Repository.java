@@ -9,8 +9,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
+/**
+ * Class is responsible for received code persistence
+ */
 public class Repository {
 
     public static final String NUMBERS_LOG = "numbers.log";
@@ -21,11 +25,18 @@ public class Repository {
 
     private final Monitor monitor;
 
+    /**
+     * removes numbers.log file and re-recreates on new instantiations
+     * @param monitor
+     */
     public Repository(final Monitor monitor) {
         cleanUp();
         this.monitor = monitor;
     }
 
+    /**
+     * removes numbers.log file and re-recreates
+     */
     static void cleanUp() {
         try {
             File numbersLog = new File(NUMBERS_LOG);
@@ -42,6 +53,11 @@ public class Repository {
         }
     }
 
+    /**
+     * validates is list of codes has 9 numeric digits
+     * @param content List of codes
+     * @return true is request is invalid, false when request is valid
+     */
     public boolean isRequestInvalid(final List<String> content) {
         return content.stream().anyMatch(code -> {
             if (code != null) {
@@ -52,6 +68,13 @@ public class Repository {
         });
     }
 
+    /**
+     * This method persists list of codes to numbers log file. Monitor and nio files operations are
+     * added to thread pool for performance reasons. Monitor operations are synchronized and should be
+     * detached from receiving connection responsibilities
+     *
+     * @param content List of codes
+     */
     public void save(final List<String> content) {
         persistExecutor.execute(() -> {
             try (BufferedWriter writer = Files.newBufferedWriter(path, Charset.defaultCharset(), StandardOpenOption.APPEND)) {
@@ -69,5 +92,14 @@ public class Repository {
                 throw new IllegalStateException(e);
             }
         });
+    }
+
+    public void shutdown() {
+        this.persistExecutor.shutdown();
+        try {
+            this.persistExecutor.awaitTermination(15, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

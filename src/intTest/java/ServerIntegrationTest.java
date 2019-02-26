@@ -1,5 +1,6 @@
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
@@ -25,8 +26,19 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+/**
+ * This integration test class should be executed in totality,
+ * <p>
+ * individual tests are expected to fail because of reporting assertions
+ */
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class ServerIntegrationTest {
+
+    @BeforeClass
+    public static void waitForOperations() throws InterruptedException {
+        Server.terminate();
+        TimeUnit.SECONDS.sleep(15);
+    }
 
     @Before
     public void up() throws InterruptedException {
@@ -59,10 +71,12 @@ public class ServerIntegrationTest {
 
     }
 
-    //2. Input lines presented to the Application via its socket must either be composed of
-    //exactly nine decimal digits (e.g.: 314159265 or 007007009) immediately followed
-    //by a server­native newline sequence; or a termination sequence as detailed in
-    //#9, below.
+    /**
+     * 2. Input lines presented to the Application via its socket must either be composed of
+     * exactly nine decimal digits (e.g.: 314159265 or 007007009) immediately followed
+     * by a server­native newline sequence; or a termination sequence as detailed in
+     * #9, below.
+     **/
 
     @Test
     public void should2AcceptExactlyNineDecimalsOrTermination_UsingLineSeparator() throws IOException, InterruptedException {
@@ -121,17 +135,17 @@ public class ServerIntegrationTest {
     }
 
 
-    /*
-        8. Every 10 seconds, the Application must print a report to standard output:
-        i. The difference since the last report of the count of new unique numbers
-        that have been received.
-        ii. The difference since the last report of the count of new duplicate numbers
-        that have been received.
-        iii. The total number of unique numbers received for this run of the
-        Application.
-        iv. Example text for #8: Received 50 unique numbers, 2 duplicates. Unique
-        total: 567231
-    */
+    /**
+     * 8. Every 10 seconds, the Application must print a report to standard output:
+     * i. The difference since the last report of the count of new unique numbers
+     * that have been received.
+     * ii. The difference since the last report of the count of new duplicate numbers
+     * that have been received.
+     * iii. The total number of unique numbers received for this run of the
+     * Application.
+     * iv. Example text for #8: Received 50 unique numbers, 2 duplicates. Unique
+     * total: 567231
+     */
 
     @Test
     public void should6NotPrintDuplicatesInTheLogFile() throws IOException, InterruptedException {
@@ -165,12 +179,12 @@ public class ServerIntegrationTest {
 
     }
 
-    /*
-    9. If any connected client writes a single line with only the word "terminate" followed
-    by a server­native newline sequence, the Application must disconnect all clients
-    and perform a clean shutdown as quickly as possible.
-    10.Clearly state all of the assumptions you made in completing the Application.
-    */
+    /**
+     * 9. If any connected client writes a single line with only the word "terminate" followed
+     * by a server­native newline sequence, the Application must disconnect all clients
+     * and perform a clean shutdown as quickly as possible.
+     * 10.Clearly state all of the assumptions you made in completing the Application.
+     */
     @Test(expected = java.net.SocketException.class)
     public void should7TerminateAndStopReceivingConnections() throws IOException, InterruptedException {
         try (Socket socket = new Socket(localAddress(), 4000)) {
