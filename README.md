@@ -3,7 +3,7 @@
 
 ## Design
 - 3 thread pools have been provided to increase performance: 
-    - single threaded report execution pool .
+    - Report execution scheduled pool .
     - 5 concurrent connections limit is enforce by connection thread pool size.
     - Repository thread pool to improve performance synchonized methods related to keep atomic counting of records. 
 - for performance reasons, Monitor is not immutable to avoid creating new instances.
