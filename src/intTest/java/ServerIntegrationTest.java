@@ -43,7 +43,7 @@ public class ServerIntegrationTest {
     @Before
     public void up() throws InterruptedException {
         Repository.cleanUp();
-        runAsync(() -> Server.getInstance());
+        runAsync(Server::getInstance);
         TimeUnit.MILLISECONDS.sleep(300);
     }
 

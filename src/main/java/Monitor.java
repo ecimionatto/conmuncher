@@ -19,7 +19,7 @@ public final class Monitor {
     private final AtomicInteger uniqueCodesPerRun = new AtomicInteger();
 
     public Monitor() {
-        reportExecutor.scheduleAtFixedRate(() -> this.printReport(),
+        reportExecutor.scheduleAtFixedRate(this::printReport,
                 10, 10, TimeUnit.SECONDS);
     }
 

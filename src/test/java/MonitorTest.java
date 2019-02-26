@@ -1,6 +1,4 @@
-import org.junit.FixMethodOrder;
 import org.junit.Test;
-import org.junit.runners.MethodSorters;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
