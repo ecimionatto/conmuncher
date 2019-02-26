@@ -1,7 +1,7 @@
 # conmuncher (connection muncher)
 ![](https://media.giphy.com/media/mh6H1spZTaQa4/giphy.gif)
 
-#Design
+## Design
 - 3 thread pools have been provided to increase performance: 
     - single threaded report execution pool .
     - 5 concurrent connections limit is enforce by connection thread pool size.
@@ -12,7 +12,7 @@
     - Repository is responsible for saving records to file.
     - Monitor is responsible for repoting accurate numbers.
 
-#Assumptions
+## Assumptions
 - lines can include more than one sequence of nine digits as long as newline sequences are present between codes.
 - system processing is limited to 5 client connections, but system is not enforcing unique client connections. 
 - Monitor has synchronized methods to make sure counter operations are performed atomically, this has performance implications but ensures the correctness of reporting.
