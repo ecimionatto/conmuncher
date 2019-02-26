@@ -5,7 +5,7 @@
 - 3 thread pools have been provided to increase performance: 
     - Report execution scheduled pool.
     - 5 concurrent connections limit is enforced by connection thread pool size.
-    - Repository thread pool mproves the performance due to synchonized methods to keep atomic counting of records. 
+    - Repository thread pool improves performance due to the use of synchonized methods needed to atomically count records. 
 - For performance reasons Monitor is not immutable in order to avoid creating tons of new instances.
 - For organization purpose, 3 objects are provided:
     - Server singleton starts and ends socket's connections.
