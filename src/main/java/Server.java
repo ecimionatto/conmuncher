@@ -13,6 +13,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+/**
+ * Singleton responsible for socket receiving connections
+ * accepts 5 client connections enforced by thread pool
+ */
 public class Server {
 
     public static final String TERMINATE_SIGNAL = "terminate";
@@ -21,9 +25,6 @@ public class Server {
 
     private final ExecutorService connectionExecutor =
             Executors.newFixedThreadPool(5);
-
-    private final ScheduledExecutorService reportExecutor =
-            Executors.newSingleThreadScheduledExecutor();
 
     private final AtomicBoolean isShutdownInitiated = new AtomicBoolean(false);
 
@@ -40,10 +41,13 @@ public class Server {
     private Server() {
         this.monitor = new Monitor();
         this.repository = new Repository(monitor);
-        scheduleReport();
         receiveConnectionsLoop();
     }
 
+    /**
+     * accepts connections on port 4000
+     * when shutdown is initialized it stops processing
+     */
     private void receiveConnectionsLoop() {
         try (ServerSocket serverSocket = new ServerSocket(4000)) {
             while (!this.isShutdownInitiated.get()) {
@@ -55,11 +59,10 @@ public class Server {
         }
     }
 
-    private void scheduleReport() {
-        reportExecutor.scheduleAtFixedRate(() -> monitor.printReport(),
-                10, 10, TimeUnit.SECONDS);
-    }
-
+    /**
+     * reads input stream and delegate persistence of file
+     * when shutdown is initialized it stops processing
+     */
     private void processRequestLoop(final Socket socket) {
         try (BufferedReader in = new BufferedReader(
                 new InputStreamReader(socket.getInputStream(), Charset.defaultCharset()))) {
@@ -83,17 +86,19 @@ public class Server {
         }
     }
 
-
+    /**
+     * attempts a clean shutdown of all thread pools
+     */
     public void shutdown() {
         this.isShutdownInitiated.set(true);
         try {
             this.connectionExecutor.shutdown();
             this.connectionExecutor.awaitTermination(15, TimeUnit.SECONDS);
-            this.reportExecutor.shutdown();
-            this.reportExecutor.awaitTermination(15, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             throw new IllegalStateException(e);
         } finally {
+            repository.shutdown();
+            monitor.shutdown();
             System.exit(0);
         }
     }
